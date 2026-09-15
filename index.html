@@ -142,10 +142,10 @@
     <canvas id="cv"></canvas>
     <div id="overlay">
       <h1>PIXEL INVADERS<span class="sub">A LAUNCHTOWER GAME</span></h1>
-      <p id="ovMsg">Alien rows are marching down.<br>Shoot them. Protect the shields.<br>Survive the boss every 3rd wave.</p>
+      <p id="ovMsg">Alien rows are marching down — shoot them before they reach you.</p>
       <div class="score-line" id="ovScore" style="display:none"></div>
-      <button id="btn">START</button>
-      <p style="font-size:11px">← → / A D to move &nbsp;·&nbsp; SPACE to fire &nbsp;·&nbsp; touch: hold ◀ ▶, tap FIRE</p>
+      <button id="btn">▶ PLAY</button>
+      <p style="font-size:11px">← → / A D to move &nbsp;·&nbsp; SPACE to fire &nbsp;·&nbsp; P to pause &nbsp;·&nbsp; touch: hold ◀ ▶, tap FIRE</p>
     </div>
   </div>
   <div id="touch">
@@ -164,8 +164,21 @@
   var W = 420, H = 560;
   var dpr = Math.min(window.devicePixelRatio || 1, 2);
   cv.width = W * dpr; cv.height = H * dpr;
-  cv.style.width = W + 'px'; cv.style.height = H + 'px';
   ctx.scale(dpr, dpr);
+  var stage = document.getElementById('stage');
+  function fitCanvas() {
+    var availW = window.innerWidth - 24;
+    var availH = window.innerHeight - 150;
+    if (availW < 200) availW = 200;
+    if (availH < 240) availH = 240;
+    var s = Math.min(availW / W, availH / H, 1.4);
+    cv.style.width = Math.round(W * s) + 'px';
+    cv.style.height = Math.round(H * s) + 'px';
+    stage.style.width = Math.round(W * s) + 'px';
+    stage.style.height = Math.round(H * s) + 'px';
+  }
+  fitCanvas();
+  window.addEventListener('resize', fitCanvas);
 
   var scoreEl = document.getElementById('score');
   var waveEl = document.getElementById('wave');
@@ -192,6 +205,37 @@
   var keys = {};
   var last = 0;
   var shake = 0;
+  var paused = false;
+
+  // ---------- WebAudio (no files) ----------
+  var actx = null;
+  function audio() {
+    if (!actx) {
+      try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { actx = null; }
+    }
+    if (actx && actx.state === 'suspended') actx.resume();
+    return actx;
+  }
+  function beep(freq, dur, type, vol, slide) {
+    var a = audio();
+    if (!a) return;
+    try {
+      var o = a.createOscillator(), g = a.createGain();
+      o.type = type || 'square';
+      o.frequency.setValueAtTime(freq, a.currentTime);
+      if (slide) o.frequency.exponentialRampToValueAtTime(slide, a.currentTime + dur);
+      g.gain.setValueAtTime(vol || 0.05, a.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + dur);
+      o.connect(g); g.connect(a.destination);
+      o.start(); o.stop(a.currentTime + dur);
+    } catch (e) {}
+  }
+  var sfx = {
+    shoot: function(){ beep(880, 0.08, 'square', 0.03, 440); },
+    hit: function(){ beep(220, 0.15, 'sawtooth', 0.05, 60); },
+    boom: function(){ beep(120, 0.4, 'sawtooth', 0.07, 30); },
+    score: function(){ beep(660, 0.1, 'triangle', 0.05, 990); }
+  };
 
   // ---------- pixel art helpers ----------
   function drawPixelSprite(cx, cy, grid, cell, color) {
@@ -326,6 +370,10 @@
   window.addEventListener('keydown', function(e){
     keys[e.code] = true;
     if (e.code === 'Space') e.preventDefault();
+    if (e.code === 'KeyP' || e.code === 'Escape') {
+      if (state === 'playing' || state === 'waveIntro') togglePause();
+      return;
+    }
     if (state === 'menu' && (e.code === 'Space' || e.code === 'Enter')) startGame();
     else if (state === 'gameover' && (e.code === 'Space' || e.code === 'Enter')) startGame();
   });
@@ -346,6 +394,8 @@
 
   // ---------- game flow ----------
   function startGame() {
+    audio();
+    if (paused) { paused = false; overlay.style.display = 'none'; return; }
     score = 0; wave = 1; lives = 3;
     player.x = W/2; player.invuln = 1.5;
     spawnWave();
@@ -363,8 +413,25 @@
     updateHud();
   }
 
+  function togglePause() {
+    paused = !paused;
+    if (paused) {
+      ovMsg.innerHTML = 'PAUSED';
+      ovScore.style.display = 'none';
+      btn.textContent = 'RESUME';
+      overlay.style.display = 'flex';
+    } else {
+      overlay.style.display = 'none';
+    }
+  }
+
+  document.addEventListener('visibilitychange', function(){
+    if (document.hidden && (state === 'playing' || state === 'waveIntro') && !paused) togglePause();
+  });
+
   function gameOver() {
     state = 'gameover';
+    paused = false;
     if (score > best) {
       best = score;
       localStorage.setItem(BEST_KEY, String(best));
@@ -403,6 +470,7 @@
     if (keys['Space'] && player.cooldown <= 0) {
       bullets.push({ x: player.x, y: player.y - 12, vy: -520 });
       player.cooldown = 0.32;
+      sfx.shoot();
     }
 
     // bullets
@@ -497,6 +565,7 @@
             al2.alive = false;
             score += 10 + (wave > 1 ? 2 : 0);
             burst(al2.x, al2.y, al2.color, 12);
+            sfx.hit();
             hit = true;
             break;
           }
@@ -559,6 +628,7 @@
     var remaining = aliens.some(function(al){ return al.alive; });
     if (!remaining && !boss) {
       score += 50;
+      sfx.score();
       nextWave();
     }
     updateHud();
@@ -569,6 +639,7 @@
     player.invuln = 2;
     shake = 0.4;
     burst(player.x, player.y, '#f87171', 20);
+    sfx.boom();
     if (lives <= 0) gameOver();
   }
 
@@ -669,7 +740,7 @@
     if (!last) last = ts;
     var dt = Math.min(0.05, (ts - last) / 1000);
     last = ts;
-    update(dt);
+    if (!paused) update(dt);
     render();
     requestAnimationFrame(loop);
   }
