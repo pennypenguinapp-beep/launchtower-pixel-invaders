@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Pixel Invaders — LaunchTower</title>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --panel: #121826;
+    --accent: #4ade80;
+    --accent2: #38bdf8;
+    --danger: #f87171;
+    --gold: #fbbf24;
+    --text: #e2e8f0;
+    --muted: #64748b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Courier New', ui-monospace, monospace;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: none;
+  }
+  #wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    gap: 8px;
+    padding: 8px;
+  }
+  #hud {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+    font-size: 14px;
+    letter-spacing: 1px;
+    background: var(--panel);
+    border: 1px solid #1e293b;
+    padding: 6px 14px;
+    border-radius: 6px;
+  }
+  #hud b { color: var(--accent); }
+  #hud .wave b { color: var(--accent2); }
+  #hud .best b { color: var(--gold); }
+  #stage {
+    position: relative;
+    border: 2px solid #1e293b;
+    border-radius: 8px;
+    background: #05070c;
+    box-shadow: 0 0 40px rgba(56,189,248,0.08);
+  }
+  canvas { display: block; image-rendering: pixelated; }
+  #overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: rgba(5,7,12,0.82);
+    text-align: center;
+    padding: 20px;
+  }
+  #overlay h1 {
+    font-size: 30px;
+    letter-spacing: 3px;
+    color: var(--accent);
+    text-shadow: 0 0 18px rgba(74,222,128,0.5);
+  }
+  #overlay h1 .sub { display:block; font-size: 12px; color: var(--muted); letter-spacing: 2px; margin-top: 6px; }
+  #overlay p { font-size: 13px; color: var(--muted); line-height: 1.7; max-width: 340px; }
+  #overlay .big { font-size: 18px; color: var(--text); }
+  #overlay .score-line { font-size: 16px; color: var(--gold); }
+  #btn {
+    background: var(--accent);
+    color: #052e16;
+    border: none;
+    font-family: inherit;
+    font-size: 16px;
+    font-weight: bold;
+    letter-spacing: 2px;
+    padding: 12px 34px;
+    border-radius: 6px;
+    cursor: pointer;
+    box-shadow: 0 0 20px rgba(74,222,128,0.4);
+  }
+  #btn:active { transform: scale(0.97); }
+  #btn.hidden { display: none; }
+  #foot {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 1px;
+  }
+  #foot a { color: var(--accent2); text-decoration: none; }
+  #foot a:hover { text-decoration: underline; }
+  #touch {
+    display: none;
+    gap: 10px;
+    width: 100%;
+    max-width: 420px;
+    justify-content: space-between;
+    padding: 0 4px;
+  }
+  #touch button {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid #1e293b;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 18px;
+    padding: 14px 0;
+    border-radius: 8px;
+    letter-spacing: 2px;
+  }
+  #touch button:active { background: #1e293b; }
+  @media (pointer: coarse) {
+    #touch { display: flex; }
+  }
+  @media (max-width: 480px) {
+    #hud { font-size: 12px; gap: 10px; padding: 5px 10px; }
+    #overlay h1 { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="hud">
+    <span>SCORE <b id="score">0</b></span>
+    <span class="wave">WAVE <b id="wave">1</b></span>
+    <span class="best">BEST <b id="best">0</b></span>
+    <span>LIVES <b id="lives">3</b></span>
+  </div>
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="overlay">
+      <h1>PIXEL INVADERS<span class="sub">A LAUNCHTOWER GAME</span></h1>
+      <p id="ovMsg">Alien rows are marching down.<br>Shoot them. Protect the shields.<br>Survive the boss every 3rd wave.</p>
+      <div class="score-line" id="ovScore" style="display:none"></div>
+      <button id="btn">START</button>
+      <p style="font-size:11px">← → / A D to move &nbsp;·&nbsp; SPACE to fire &nbsp;·&nbsp; touch: hold ◀ ▶, tap FIRE</p>
+    </div>
+  </div>
+  <div id="touch">
+    <button id="tL">◀</button>
+    <button id="tF">FIRE</button>
+    <button id="tR">▶</button>
+  </div>
+  <div id="foot">Built by <a href="https://pennypenguinapp-beep.github.io/" target="_blank" rel="noopener">LaunchTower</a> — free browser games &amp; tools for pixel artists</div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var cv = document.getElementById('cv');
+  var ctx = cv.getContext('2d');
+  var W = 420, H = 560;
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = W * dpr; cv.height = H * dpr;
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  ctx.scale(dpr, dpr);
+
+  var scoreEl = document.getElementById('score');
+  var waveEl = document.getElementById('wave');
+  var bestEl = document.getElementById('best');
+  var livesEl = document.getElementById('lives');
+  var overlay = document.getElementById('overlay');
+  var ovMsg = document.getElementById('ovMsg');
+  var ovScore = document.getElementById('ovScore');
+  var btn = document.getElementById('btn');
+
+  var BEST_KEY = 'launchtower_pixel_invaders_best';
+  var best = parseInt(localStorage.getItem(BEST_KEY) || '0', 10);
+  bestEl.textContent = best;
+
+  // ---------- state ----------
+  var state = 'menu'; // menu | playing | waveIntro | gameover
+  var score = 0, wave = 1, lives = 3;
+  var aliens = [], shields = [], bullets = [], ebullets = [], particles = [];
+  var alienDir = 1, alienStepTimer = 0, alienStepInterval = 0.55;
+  var alienDrop = 0;
+  var boss = null;
+  var waveIntroT = 0;
+  var player = { x: W/2, y: H - 46, w: 26, h: 14, cooldown: 0, invuln: 0 };
+  var keys = {};
+  var last = 0;
+  var shake = 0;
+
+  // ---------- pixel art helpers ----------
+  function drawPixelSprite(cx, cy, grid, cell, color) {
+    var rows = grid.length, cols = grid[0].length;
+    var ox = cx - (cols * cell) / 2, oy = cy - (rows * cell) / 2;
+    ctx.fillStyle = color;
+    for (var r = 0; r < rows; r++) {
+      for (var c = 0; c < cols; c++) {
+        if (grid[r][c]) ctx.fillRect(ox + c*cell, oy + r*cell, cell, cell);
+      }
+    }
+  }
+
+  var ALIEN_A = [
+    [0,0,1,0,0,0,1,0,0],
+    [0,1,1,1,0,1,1,1,0],
+    [1,1,1,1,1,1,1,1,1],
+    [1,1,0,1,1,1,0,1,1],
+    [1,1,1,1,1,1,1,1,1],
+    [0,0,1,0,1,0,1,0,0],
+    [0,1,0,0,1,0,0,1,0]
+  ];
+  var ALIEN_B = [
+    [0,1,0,0,0,0,0,1,0],
+    [0,0,1,0,0,0,1,0,0],
+    [0,1,1,1,1,1,1,1,0],
+    [1,1,0,1,1,1,0,1,1],
+    [1,1,1,1,1,1,1,1,1],
+    [1,1,1,0,1,0,1,1,1],
+    [0,0,1,0,0,0,1,0,0]
+  ];
+  var ALIEN_C = [
+    [0,0,0,1,1,1,0,0,0],
+    [0,1,1,1,1,1,1,1,0],
+    [1,1,1,1,1,1,1,1,1],
+    [1,1,1,0,1,0,1,1,1],
+    [0,0,1,1,1,1,1,0,0],
+    [0,1,0,0,0,0,0,1,0],
+    [1,0,0,0,0,0,0,0,1]
+  ];
+  var BOSS_GRID = [
+    [0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+    [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+    [1,1,1,1,0,1,1,1,1,1,1,0,1,1,1,1],
+    [1,1,0,1,1,1,1,1,1,1,1,1,1,0,1,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,1,1,1,1,1,0,1,1,0,1,1,1,1,1,1],
+    [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+    [0,0,1,1,0,0,1,1,1,1,0,0,1,1,0,0]
+  ];
+
+  // ---------- wave setup ----------
+  function spawnWave() {
+    aliens = [];
+    ebullets = [];
+    boss = null;
+    alienDir = 1;
+    alienStepTimer = 0;
+    alienDrop = 0;
+    var speed = Math.max(0.18, 0.55 - (wave - 1) * 0.045);
+    alienStepInterval = speed;
+
+    if (wave % 3 === 0) {
+      // boss wave
+      boss = {
+        x: W/2, y: 90, w: 120, h: 48,
+        hp: 14 + wave * 2, maxHp: 14 + wave * 2,
+        fireT: 2.2, moveT: 0, dir: 1
+      };
+      // a few minions too
+      var rows = 2, cols = 4;
+      for (var r = 0; r < rows; r++) {
+        for (var c = 0; c < cols; c++) {
+          aliens.push({
+            x: 70 + c * 70, y: 170 + r * 44,
+            grid: (r === 0) ? ALIEN_B : ALIEN_C,
+            cell: 4, alive: true,
+            color: (r === 0) ? '#38bdf8' : '#a78bfa'
+          });
+        }
+      }
+    } else {
+      var rows = Math.min(5, 3 + Math.floor((wave - 1) / 2));
+      var cols = 8;
+      for (var r2 = 0; r2 < rows; r2++) {
+        for (var c2 = 0; c2 < cols; c2++) {
+          var grid = (r2 === 0) ? ALIEN_A : (r2 === 1 ? ALIEN_B : ALIEN_C);
+          var color = (r2 === 0) ? '#4ade80' : (r2 === 1 ? '#38bdf8' : '#a78bfa');
+          aliens.push({
+            x: 55 + c2 * 42, y: 70 + r2 * 40,
+            grid: grid, cell: 4, alive: true, color: color
+          });
+        }
+      }
+    }
+    buildShields();
+  }
+
+  function buildShields() {
+    shields = [];
+    var shieldY = H - 110;
+    var positions = [W*0.22, W*0.5, W*0.78];
+    for (var i = 0; i < 3; i++) {
+      var sx = positions[i];
+      // shield as a grid of 8x5 blocks, 10px each, with a notch at bottom center
+      var blocks = [];
+      for (var r = 0; r < 5; r++) {
+        for (var c = 0; c < 8; c++) {
+          if (r === 4 && c >= 3 && c <= 4) continue; // notch
+          blocks.push({ x: sx - 40 + c*10, y: shieldY + r*10, hp: 2 });
+        }
+      }
+      shields.push(blocks);
+    }
+  }
+
+  // ---------- particles ----------
+  function burst(x, y, color, n) {
+    for (var i = 0; i < n; i++) {
+      var a = Math.random() * Math.PI * 2;
+      var sp = 40 + Math.random() * 140;
+      particles.push({
+        x: x, y: y,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        life: 0.4 + Math.random() * 0.4,
+        maxLife: 0.8, color: color, size: 2 + Math.random() * 3
+      });
+    }
+  }
+
+  // ---------- input ----------
+  window.addEventListener('keydown', function(e){
+    keys[e.code] = true;
+    if (e.code === 'Space') e.preventDefault();
+    if (state === 'menu' && (e.code === 'Space' || e.code === 'Enter')) startGame();
+    else if (state === 'gameover' && (e.code === 'Space' || e.code === 'Enter')) startGame();
+  });
+  window.addEventListener('keyup', function(e){ keys[e.code] = false; });
+
+  btn.addEventListener('click', function(){ startGame(); });
+
+  function bindTouch(id, down, up) {
+    var el = document.getElementById(id);
+    el.addEventListener('touchstart', function(e){ e.preventDefault(); down(); }, {passive:false});
+    el.addEventListener('touchend', function(e){ e.preventDefault(); up(); }, {passive:false});
+    el.addEventListener('mousedown', function(e){ e.preventDefault(); down(); });
+    el.addEventListener('mouseup', function(e){ e.preventDefault(); up(); });
+  }
+  bindTouch('tL', function(){ keys['ArrowLeft'] = true; }, function(){ keys['ArrowLeft'] = false; });
+  bindTouch('tR', function(){ keys['ArrowRight'] = true; }, function(){ keys['ArrowRight'] = false; });
+  bindTouch('tF', function(){ keys['Space'] = true; }, function(){ keys['Space'] = false; });
+
+  // ---------- game flow ----------
+  function startGame() {
+    score = 0; wave = 1; lives = 3;
+    player.x = W/2; player.invuln = 1.5;
+    spawnWave();
+    state = 'waveIntro';
+    waveIntroT = 1.6;
+    overlay.style.display = 'none';
+    updateHud();
+  }
+
+  function nextWave() {
+    wave++;
+    spawnWave();
+    state = 'waveIntro';
+    waveIntroT = 1.6;
+    updateHud();
+  }
+
+  function gameOver() {
+    state = 'gameover';
+    if (score > best) {
+      best = score;
+      localStorage.setItem(BEST_KEY, String(best));
+    }
+    bestEl.textContent = best;
+    ovMsg.innerHTML = 'THE FLEET HAS FALLEN';
+    ovScore.style.display = 'block';
+    ovScore.textContent = 'SCORE ' + score + '  ·  WAVE ' + wave + (score >= best && score > 0 ? '  ·  NEW BEST!' : '');
+    btn.textContent = 'PLAY AGAIN';
+    overlay.style.display = 'flex';
+  }
+
+  function updateHud() {
+    scoreEl.textContent = score;
+    waveEl.textContent = wave;
+    livesEl.textContent = lives;
+    bestEl.textContent = best;
+  }
+
+  // ---------- update ----------
+  function update(dt) {
+    if (state === 'waveIntro') {
+      waveIntroT -= dt;
+      if (waveIntroT <= 0) state = 'playing';
+      return;
+    }
+    if (state !== 'playing') return;
+
+    // player
+    var pSpeed = 260;
+    if (keys['ArrowLeft'] || keys['KeyA']) player.x -= pSpeed * dt;
+    if (keys['ArrowRight'] || keys['KeyD']) player.x += pSpeed * dt;
+    player.x = Math.max(16, Math.min(W - 16, player.x));
+    player.cooldown -= dt;
+    player.invuln -= dt;
+    if (keys['Space'] && player.cooldown <= 0) {
+      bullets.push({ x: player.x, y: player.y - 12, vy: -520 });
+      player.cooldown = 0.32;
+    }
+
+    // bullets
+    for (var i = bullets.length - 1; i >= 0; i--) {
+      bullets[i].y += bullets[i].vy * dt;
+      if (bullets[i].y < -10) bullets.splice(i, 1);
+    }
+    for (var j = ebullets.length - 1; j >= 0; j--) {
+      ebullets[j].y += ebullets[j].vy * dt;
+      if (ebullets[j].y > H + 10) ebullets.splice(j, 1);
+    }
+
+    // aliens march
+    alienStepTimer += dt;
+    if (alienStepTimer >= alienStepInterval) {
+      alienStepTimer = 0;
+      var minX = 1e9, maxX = -1e9, maxY = -1e9;
+      var anyAlive = false;
+      for (var a = 0; a < aliens.length; a++) {
+        if (!aliens[a].alive) continue;
+        anyAlive = true;
+        var al = aliens[a];
+        if (al.x < minX) minX = al.x;
+        if (al.x > maxX) maxX = al.x;
+        if (al.y > maxY) maxY = al.y;
+      }
+      if (anyAlive) {
+        var step = 14;
+        if ((alienDir > 0 && maxX + step > W - 24) || (alienDir < 0 && minX - step < 24)) {
+          alienDir *= -1;
+          alienDrop += 18;
+        } else {
+          for (var b = 0; b < aliens.length; b++) {
+            if (aliens[b].alive) aliens[b].x += step * alienDir;
+          }
+        }
+        for (var c = 0; c < aliens.length; c++) {
+          if (aliens[c].alive) aliens[c].y += alienDrop;
+        }
+        // aliens reached player line
+        if (maxY + 14 >= player.y - 8) {
+          loseLife();
+          if (state !== 'playing') return;
+        }
+      }
+      // alien fire
+      var fireChance = Math.min(0.5, 0.12 + wave * 0.02);
+      if (anyAlive && Math.random() < fireChance) {
+        var shooters = aliens.filter(function(al){ return al.alive; });
+        var s = shooters[Math.floor(Math.random() * shooters.length)];
+        ebullets.push({ x: s.x, y: s.y + 14, vy: 150 + wave * 8 });
+      }
+    }
+
+    // boss
+    if (boss) {
+      boss.moveT += dt;
+      boss.x += boss.dir * 55 * dt;
+      if (boss.x < 80) { boss.x = 80; boss.dir = 1; }
+      if (boss.x > W - 80) { boss.x = W - 80; boss.dir = -1; }
+      boss.fireT -= dt;
+      if (boss.fireT <= 0) {
+        boss.fireT = Math.max(0.8, 2.4 - wave * 0.1);
+        ebullets.push({ x: boss.x - 30, y: boss.y + 24, vy: 180 });
+        ebullets.push({ x: boss.x + 30, y: boss.y + 24, vy: 180 });
+        if (wave >= 6) ebullets.push({ x: boss.x, y: boss.y + 24, vy: 220 });
+      }
+    }
+
+    // bullet vs alien / boss / shield
+    for (var bi = bullets.length - 1; bi >= 0; bi--) {
+      var bu = bullets[bi];
+      var hit = false;
+      if (boss && Math.abs(bu.x - boss.x) < boss.w/2 && bu.y > boss.y - boss.h/2 && bu.y < boss.y + boss.h/2) {
+        boss.hp--;
+        burst(bu.x, bu.y, '#fbbf24', 5);
+        hit = true;
+        if (boss.hp <= 0) {
+          score += 500;
+          burst(boss.x, boss.y, '#fbbf24', 40);
+          burst(boss.x - 30, boss.y, '#f87171', 30);
+          burst(boss.x + 30, boss.y, '#38bdf8', 30);
+          shake = 0.5;
+          boss = null;
+        }
+      }
+      if (!hit) {
+        for (var ai = 0; ai < aliens.length; ai++) {
+          var al2 = aliens[ai];
+          if (!al2.alive) continue;
+          if (Math.abs(bu.x - al2.x) < 18 && Math.abs(bu.y - al2.y) < 14) {
+            al2.alive = false;
+            score += 10 + (wave > 1 ? 2 : 0);
+            burst(al2.x, al2.y, al2.color, 12);
+            hit = true;
+            break;
+          }
+        }
+      }
+      if (!hit) {
+        for (var si = 0; si < shields.length; si++) {
+          for (var sk = 0; sk < shields[si].length; sk++) {
+            var blk = shields[si][sk];
+            if (blk.hp > 0 && bu.x >= blk.x && bu.x <= blk.x + 10 && bu.y >= blk.y && bu.y <= blk.y + 10) {
+              blk.hp--;
+              burst(bu.x, bu.y, '#4ade80', 4);
+              hit = true;
+              break;
+            }
+          }
+          if (hit) break;
+        }
+      }
+      if (hit) bullets.splice(bi, 1);
+    }
+
+    // ebullets vs player / shields
+    for (var ei = ebullets.length - 1; ei >= 0; ei--) {
+      var eb = ebullets[ei];
+      var ehit = false;
+      if (player.invuln <= 0 && Math.abs(eb.x - player.x) < 14 && Math.abs(eb.y - player.y) < 10) {
+        loseLife();
+        ehit = true;
+      }
+      if (!ehit) {
+        for (var si2 = 0; si2 < shields.length; si2++) {
+          for (var sk2 = 0; sk2 < shields[si2].length; sk2++) {
+            var blk2 = shields[si2][sk2];
+            if (blk2.hp > 0 && eb.x >= blk2.x && eb.x <= blk2.x + 10 && eb.y >= blk2.y && eb.y <= blk2.y + 10) {
+              blk2.hp--;
+              burst(eb.x, eb.y, '#f87171', 4);
+              ehit = true;
+              break;
+            }
+          }
+          if (ehit) break;
+        }
+      }
+      if (ehit) ebullets.splice(ei, 1);
+    }
+
+    // particles
+    for (var pi = particles.length - 1; pi >= 0; pi--) {
+      var p = particles[pi];
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      p.vy += 220 * dt;
+      p.life -= dt;
+      if (p.life <= 0) particles.splice(pi, 1);
+    }
+
+    shake -= dt;
+
+    // wave clear?
+    var remaining = aliens.some(function(al){ return al.alive; });
+    if (!remaining && !boss) {
+      score += 50;
+      nextWave();
+    }
+    updateHud();
+  }
+
+  function loseLife() {
+    lives--;
+    player.invuln = 2;
+    shake = 0.4;
+    burst(player.x, player.y, '#f87171', 20);
+    if (lives <= 0) gameOver();
+  }
+
+  // ---------- render ----------
+  function render() {
+    ctx.clearRect(0, 0, W, H);
+    ctx.save();
+    if (shake > 0) {
+      ctx.translate((Math.random()-0.5) * 8 * shake, (Math.random()-0.5) * 8 * shake);
+    }
+
+    // starfield (static, cheap)
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    for (var s = 0; s < 40; s++) {
+      var sx = (s * 97.3) % W;
+      var sy = (s * 53.7) % H;
+      ctx.fillRect(sx, sy, 1.5, 1.5);
+    }
+
+    // shields
+    for (var si = 0; si < shields.length; si++) {
+      for (var sk = 0; sk < shields[si].length; sk++) {
+        var blk = shields[si][sk];
+        if (blk.hp <= 0) continue;
+        ctx.fillStyle = blk.hp === 2 ? '#4ade80' : 'rgba(74,222,128,0.45)';
+        ctx.fillRect(blk.x, blk.y, 10, 10);
+      }
+    }
+
+    // aliens
+    for (var a = 0; a < aliens.length; a++) {
+      var al = aliens[a];
+      if (!al.alive) continue;
+      drawPixelSprite(al.x, al.y, al.grid, al.cell, al.color);
+    }
+
+    // boss
+    if (boss) {
+      drawPixelSprite(boss.x, boss.y, BOSS_GRID, 7, '#f87171');
+      // hp bar
+      var bw = 120;
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(boss.x - bw/2, boss.y - 40, bw, 6);
+      ctx.fillStyle = '#fbbf24';
+      ctx.fillRect(boss.x - bw/2, boss.y - 40, bw * (boss.hp / boss.maxHp), 6);
+    }
+
+    // player
+    if (state === 'playing' || state === 'waveIntro') {
+      var blink = player.invuln > 0 && Math.floor(player.invuln * 12) % 2 === 0;
+      if (!blink) {
+        ctx.fillStyle = '#38bdf8';
+        // cannon body
+        ctx.fillRect(player.x - 13, player.y, 26, 8);
+        ctx.fillRect(player.x - 8, player.y - 6, 16, 6);
+        ctx.fillRect(player.x - 2, player.y - 12, 4, 6);
+        ctx.fillStyle = '#0ea5e9';
+        ctx.fillRect(player.x - 13, player.y + 8, 26, 3);
+      }
+    }
+
+    // bullets
+    ctx.fillStyle = '#4ade80';
+    for (var bi = 0; bi < bullets.length; bi++) {
+      ctx.fillRect(bullets[bi].x - 1.5, bullets[bi].y - 6, 3, 8);
+    }
+    ctx.fillStyle = '#f87171';
+    for (var ei = 0; ei < ebullets.length; ei++) {
+      ctx.fillRect(ebullets[ei].x - 2, ebullets[ei].y - 4, 4, 7);
+    }
+
+    // particles
+    for (var pi = 0; pi < particles.length; pi++) {
+      var p = particles[pi];
+      ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+
+    // wave intro text
+    if (state === 'waveIntro') {
+      ctx.fillStyle = 'rgba(226,232,240,0.9)';
+      ctx.font = 'bold 26px "Courier New", monospace';
+      ctx.textAlign = 'center';
+      var label = (wave % 3 === 0) ? 'WAVE ' + wave + ' — BOSS INBOUND' : 'WAVE ' + wave;
+      ctx.fillText(label, W/2, H/2 - 10);
+      ctx.font = '13px "Courier New", monospace';
+      ctx.fillStyle = '#64748b';
+      ctx.fillText('get ready...', W/2, H/2 + 14);
+    }
+
+    ctx.restore();
+  }
+
+  // ---------- loop ----------
+  function loop(ts) {
+    if (!last) last = ts;
+    var dt = Math.min(0.05, (ts - last) / 1000);
+    last = ts;
+    update(dt);
+    render();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
